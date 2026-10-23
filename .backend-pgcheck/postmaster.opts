@@ -1,0 +1,1 @@
+/usr/lib/postgresql/16/bin/postgres "-D" ".backend-pgcheck" "-k" "/home/runner/work/Letsema/Letsema/.backend-pgcheck" "-p" "55439"
