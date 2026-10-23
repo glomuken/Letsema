@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Letsema",
+    "slug": "letsema",
+    "scheme": "letsema",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "org.letsema.app"
+    },
+    "android": {
+      "package": "org.letsema.app"
+    }
+  }
+}

@@ -1,25 +1,50 @@
 # Letsema
 
-A mobile-friendly Streamlit web app connecting students and industry novices with
-NGOs and companies. It runs in a phone's browser; it is not a native Android/iOS app.
+Letsema is a native iOS and Android app for students and industry novices to build
+skills through projects, help NGOs, and share an opt-in portfolio with companies.
+The mobile app is built with Expo and React Native and uses Supabase for auth and
+data.
 
-## Run
+## Run the mobile app
 
-Requires Python 3.12+:
+Requires Node.js and npm:
 
 ```sh
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-streamlit run streamlit_app.py
+npm install
+cp .env.example .env
+# Set your Supabase URL and anon key in .env
+npm start
 ```
 
-Without Supabase settings, the app opens an **isolated, session-only demo**. Switch
-between Individual, NGO and Company to explore the workflows. Demo assessments
-are explicitly simulated; no real accounts or payments are created. Demo links
-only work within that session.
+Open the project with Expo Go on a device or launch an iOS/Android simulator.
+The app uses native secure storage for the Supabase auth session.
 
 ## Supabase setup
+
+1. Create a Supabase project and run `supabase/schema.sql` in its SQL editor.
+2. Enable email/password authentication and email confirmation in Supabase Auth.
+3. Set `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` in `.env`.
+   The anon key is intended for client apps; never put a service-role key in the
+   mobile app or any `EXPO_PUBLIC_*` variable.
+4. Link the Supabase CLI to the project and deploy trusted grading:
+
+   ```sh
+   supabase functions deploy grade-submission
+   supabase secrets set OPENAI_API_KEY=your-openai-api-key
+   ```
+
+   `SUPABASE_SERVICE_ROLE_KEY` is provided to deployed Edge Functions by Supabase.
+   `OPENAI_MODEL` optionally selects a model; the default is `gpt-4o-mini`.
+5. Run the app, register, confirm your email, sign in, and choose a role. A role
+   is fixed at onboarding; create separate accounts for each role.
+
+Database row-level security restricts reads and all app writes use the
+permission-checked `letsema_action` RPC. The grading Edge Function authenticates
+the user, sends only written evidence and the rubric to OpenAI, validates the
+result, then uses the service role to award rubric-bounded points. Keep service
+credentials private and restrict who can modify the deployed function.
+
+## Legacy Streamlit configuration
 
 1. Create a Supabase project and run `supabase/schema.sql` in its SQL editor.
 2. Enable email/password authentication and email confirmation in Supabase Auth.
@@ -33,7 +58,7 @@ only work within that session.
    service-role key in a client, repository, URL, or public deployment settings.
    `OPENAI_MODEL` optionally selects a model; the default is `gpt-4o-mini`.
 5. Restart Streamlit, register, confirm your email, sign in, and choose a role.
-   A role is fixed at onboarding. Create separate accounts for each real role.
+   A role is fixed at onboarding. Create separate accounts for each role.
 
 Database row-level security restricts reads, and database actions check ownership,
 roles and state transitions. Experience points cannot be written by applicants:
@@ -52,8 +77,9 @@ Keep service credentials private and restrict who can modify the deployed app.
   presentation URL. Host media yourself; the app does not upload or transcode it.
 - Deliver assigned work and retain learning projects, NGO work and NGO reviews.
 - Edit a resume and explicitly opt into public sharing. A random portfolio link
-  works without a viewer account; disabling sharing revokes it and removes the
-  applicant from talent lists. Shared content should never contain private data.
+  opens in Letsema without a viewer account; the recipient needs the app
+  installed. Disabling sharing revokes the link and removes the applicant from
+  talent lists. Shared content should never contain private data.
 
 ### NGOs
 
@@ -88,20 +114,35 @@ the model may still be wrong or susceptible to deceptive evidence. Human review
 and abuse controls are recommended before relying on points for paid hiring.
 Missing configuration or invalid AI responses do not silently grant points.
 
-Deploy the Streamlit app behind HTTPS, configure the above server secrets, and
-share its URL with mobile users. Sessions are kept per browser, not globally
-cached. A browser refresh may require signing in again.
+The former Streamlit interface remains available as a legacy web/demo client:
+
+```sh
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+Without Supabase settings, it provides an isolated, session-only demo. Demo
+assessments are simulated; no real accounts or payments are created. Native
+clients require Supabase configuration.
 
 ## Verification
 
-The repository uses Python's standard-library test runner, with Streamlit's
-built-in app testing support:
+Verify the native app build and the legacy Python app with:
+
+```sh
+npm run typecheck
+npx expo export --platform android
+```
+
+The legacy web tests use Python's standard-library runner and Streamlit app testing:
 
 ```sh
 python -m unittest discover -s tests -v
 ```
 
-For a manual walkthrough, use the demo profile switcher: complete a challenge,
-pitch an open NGO project, switch to the NGO and assign it, switch back to deliver,
-then complete and review as the NGO. Opt into portfolio sharing and use a Company
-profile to view a matching weekly list.
+For a manual walkthrough of the legacy web demo, use the demo profile switcher:
+complete a challenge, pitch an open NGO project, switch to the NGO and assign it,
+switch back to deliver, then complete and review as the NGO. Opt into portfolio
+sharing and use a Company profile to view a matching weekly list.
