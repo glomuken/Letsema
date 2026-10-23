@@ -5,3 +5,9 @@ __pycache__/
 .streamlit/secrets.toml
 .pytest_cache/
 .backend-pgcheck/
+node_modules/
+.expo/
+dist/
+.env
+.env.*
+!.env.example
