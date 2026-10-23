@@ -47,11 +47,14 @@ def show_portfolio(data):
     st.text(profile.get("resume") or "No resume added yet.")
     st.subheader("Project repository")
     for item in data.get("submissions", []):
-        with st.expander(f"Learning · {item['title']} · {item.get('points', 0)} points"):
+        learning = bool(item.get("course_id"))
+        label = f"Learning · {item['title']} · {item.get('points', 0)} points" if learning else f"NGO · {item['title']}"
+        with st.expander(label):
             st.text(item["description"])
             link("View project", item.get("artifact_url"))
-            assessment = item.get("assessment") or {}
-            st.text(assessment.get("feedback", "Awaiting assessment."))
+            if learning:
+                assessment = item.get("assessment") or {}
+                st.text(assessment.get("feedback", "Awaiting assessment."))
     for item in data.get("projects", []):
         with st.expander(f"NGO · {item['title']}"):
             st.text(item.get("delivery_description") or item.get("brief", ""))
@@ -96,7 +99,8 @@ def learn(store, demo):
     st.caption("Project challenges, not academic tests. Complete each challenge once to earn points.")
     courses = store.rows("courses")
     field = st.selectbox("Explore an industry", ["All"] + sorted({c["field"] for c in courses}))
-    completed = {s["course_id"] for s in store.rows("submissions", applicant_id=store.profile["id"])}
+    submissions = {s["course_id"]: s for s in store.rows("submissions", applicant_id=store.profile["id"])
+                   if s.get("course_id")}
     for course in courses:
         if field != "All" and course["field"] != field:
             continue
@@ -105,15 +109,22 @@ def learn(store, demo):
             st.caption("Rubric")
             for criterion in course["rubric"]:
                 st.write(f"{criterion['criterion']}: {criterion['max_points']} points")
-            if course["id"] in completed:
+            prior = submissions.get(course["id"])
+            if prior and prior.get("assessment") is not None:
                 st.success("Challenge submitted — see your repository for feedback.")
                 continue
+            if prior:
+                st.info("Assessment pending. Retry the saved evidence below; points are awarded only once.")
             with st.form("learn_" + str(course["id"])):
-                title = st.text_input("Your project title", max_chars=200)
+                title = st.text_input("Your project title", value=prior["title"] if prior else "",
+                                      max_chars=200, disabled=bool(prior))
                 description = st.text_area("Written project evidence",
                                           help="Describe what you built, decisions, outcomes and evidence for each rubric item.",
-                                          max_chars=20000)
-                artifact = st.text_input("Project / repository URL (https://…)")
+                                          value=prior["description"] if prior else "",
+                                          max_chars=10000, disabled=bool(prior))
+                artifact = st.text_input("Project / repository URL (https://…)",
+                                         value=prior["artifact_url"] if prior else "",
+                                         disabled=bool(prior))
                 st.caption("AI assesses written evidence only; it cannot inspect linked files or videos. "
                            "Do not submit confidential or personal data.")
                 if demo:
@@ -148,9 +159,13 @@ def repository(store):
     if not submissions:
         st.info("Complete a learning challenge to start your project repository.")
     for submission in submissions:
-        with st.expander(submission["title"]):
+        learning = bool(submission.get("course_id"))
+        with st.expander(("Learning · " if learning else "NGO · ") + submission["title"]):
             st.text(submission["description"])
             link("Open project", submission.get("artifact_url"))
+            if not learning:
+                st.caption("Real-world NGO project delivery.")
+                continue
             st.write(f"{submission.get('points', 0)} points")
             result = submission.get("assessment") or {}
             st.text(result.get("feedback", "Assessment pending."))
@@ -170,7 +185,7 @@ def opportunities(store):
     p = store.profile
     projects = store.rows("projects")
     for project in projects:
-        if project["status"] not in ("open", "assigned", "delivered", "completed"):
+        if project["status"] not in ("open", "assigned", "delivered", "complete"):
             continue
         with st.expander(f"{project['title']} · R{float(project['budget']):,.2f} · {project['status']}"):
             st.text(project["brief"])
@@ -186,7 +201,7 @@ def opportunities(store):
                             act(store, "pitch", project_id=project["id"], message=message, media_url=media)
             if project.get("assigned_to") == p["id"] and project["status"] == "assigned":
                 with st.form("deliver_" + str(project["id"])):
-                    description = st.text_area("Delivery summary", max_chars=20000)
+                    description = st.text_area("Delivery summary", max_chars=10000)
                     artifact = st.text_input("Delivered project URL")
                     if st.form_submit_button("Submit completed work"):
                         act(store, "deliver_project", project_id=project["id"],
@@ -202,7 +217,7 @@ def ngo_projects(store):
             title = st.text_input("Project title", max_chars=200)
             field = st.text_input("Industry / field", value=store.profile["field"], max_chars=100)
             area = st.text_input("Area / city", value=store.profile["area"], max_chars=100)
-            brief = st.text_area("Project brief and acceptance criteria", max_chars=20000)
+            brief = st.text_area("Project brief and acceptance criteria", max_chars=10000)
             budget = st.number_input("Applicant payment (ZAR)", min_value=1.0, max_value=1000000.0, value=500.0)
             minimum = st.number_input("Minimum experience points to pitch", min_value=0, max_value=100000, step=10)
             if st.form_submit_button("Create project"):
@@ -217,8 +232,11 @@ def ngo_projects(store):
                 with st.form("fee_" + str(project["id"])):
                     reference = st.text_input("Manual platform fee payment reference")
                     confirmed = st.checkbox("I have paid the platform fee outside this app.")
-                    if st.form_submit_button("Record fee payment and publish", disabled=not confirmed):
-                        act(store, "record_platform_fee", project_id=project["id"], reference=reference)
+                    if st.form_submit_button("Record fee payment and publish"):
+                        if confirmed:
+                            act(store, "record_platform_fee", project_id=project["id"], reference=reference)
+                        else:
+                            st.error("Confirm the external platform fee payment before publishing.")
             if project["status"] == "open":
                 pitches = store.rows("pitches", project_id=project["id"])
                 if not pitches:
@@ -237,9 +255,12 @@ def ngo_projects(store):
                     rating = st.slider("Review rating", 1, 5, 5)
                     body = st.text_area("Your review", max_chars=5000)
                     paid = st.checkbox("I accepted the work and paid the applicant outside this app.")
-                    if st.form_submit_button("Record payment, complete and review", disabled=not paid):
-                        act(store, "complete_project", project_id=project["id"],
-                            payment_reference=payment, rating=rating, body=body)
+                    if st.form_submit_button("Record payment, complete and review"):
+                        if paid:
+                            act(store, "complete_project", project_id=project["id"],
+                                payment_reference=payment, rating=rating, body=body)
+                        else:
+                            st.error("Confirm acceptance and external applicant payment before completing.")
 
 
 def talent(store):
@@ -333,6 +354,10 @@ def main():
     if configured and not st.session_state.get("signed_in"):
         authenticate(client)
         return
+    if configured and st.button("Sign out"):
+        client.auth.sign_out()
+        st.session_state.clear()
+        st.rerun()
     if store.profile is None:
         st.subheader("Choose your profile")
         with st.form("onboard"):
@@ -363,10 +388,6 @@ def main():
     else:
         page = st.selectbox("Navigate", ["Weekly talent", "My profile"])
         talent(store) if page == "Weekly talent" else edit_profile(store)
-    if configured and st.button("Sign out"):
-        client.auth.sign_out()
-        st.session_state.clear()
-        st.rerun()
     st.caption("Mobile-friendly web app · Open this URL in your phone's browser.")
 
 

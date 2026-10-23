@@ -17,6 +17,8 @@ class DemoStub:
     def __init__(self):
         self.role = "individual"
         self.actions = []
+        self.projects = []
+        self.submissions = []
 
     def switch_role(self, role):
         self.role = role
@@ -30,6 +32,10 @@ class DemoStub:
         }
 
     def rows(self, table, **filters):
+        if table == "projects":
+            return self.projects
+        if table == "submissions":
+            return self.submissions
         if table == "courses":
             return [{
                 "id": "course", "title": "Build a campaign", "field": "Design",
@@ -100,6 +106,21 @@ class AppTests(unittest.TestCase):
         self.assertFalse(app.session_state["demo_store"].actions)
         self.assertIn("written evidence", app.error[0].value)
 
+    def test_pending_assessment_can_retry_saved_evidence(self):
+        app = self.app()
+        app.session_state["demo_store"].submissions = [{
+            "id": "pending", "course_id": "course", "assessment": None,
+            "title": "Saved campaign", "description": "Saved evidence",
+            "artifact_url": "https://example.org/saved",
+        }]
+        app.run()
+        self.assertTrue(app.text_input[0].disabled)
+        self.assertTrue(app.text_area[0].disabled)
+        app.button[0].click().run()
+        self.assertFalse(app.exception)
+        _, params = app.session_state["demo_store"].actions[-1]
+        self.assertEqual(params["description"], "Saved evidence")
+
     def test_public_portfolio_needs_no_authentication(self):
         app = AppTest.from_file(APP)
         app.query_params["profile"] = "demo-token"
@@ -114,6 +135,28 @@ class AppTests(unittest.TestCase):
         app.run()
         self.assertFalse(app.exception)
         self.assertIn("unavailable", app.info[0].value)
+
+    def test_payment_forms_accept_confirmation_on_submit(self):
+        for status, action in [("draft", "record_platform_fee"), ("delivered", "complete_project")]:
+            with self.subTest(status=status):
+                app = self.app()
+                app.session_state["demo_store"].projects = [{
+                    "id": "project", "ngo_id": "person", "title": "Campaign",
+                    "brief": "Build a campaign", "budget": 1000, "platform_fee": 100,
+                    "status": status,
+                }]
+                app.selectbox[0].select("ngo").run()
+                self.assertFalse(app.button[-1].disabled)
+                app.button[-1].click().run()
+                self.assertFalse(app.session_state["demo_store"].actions)
+                self.assertIn("Confirm", app.error[0].value)
+                app.text_input[-1].set_value("MANUAL-DEMO-REFERENCE")
+                if status == "delivered":
+                    app.text_area[-1].set_value("Useful work delivered.")
+                app.checkbox[-1].check()
+                app.button[-1].click().run()
+                self.assertFalse(app.exception)
+                self.assertEqual(app.session_state["demo_store"].actions[-1][0], action)
 
 
 if __name__ == "__main__":

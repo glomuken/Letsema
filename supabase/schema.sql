@@ -88,7 +88,8 @@ create policy courses_read on public.courses for select to anon, authenticated u
 create policy projects_read on public.projects for select to authenticated
   using (ngo_id = auth.uid() or status <> 'draft');
 create policy submissions_read on public.submissions for select to authenticated
-  using (applicant_id = auth.uid());
+  using (applicant_id = auth.uid() or exists (
+    select 1 from public.projects p where p.id = project_id and p.ngo_id = auth.uid()));
 create policy pitches_read on public.pitches for select to authenticated
   using (applicant_id = auth.uid() or exists (
     select 1 from public.projects p where p.id = project_id and p.ngo_id = auth.uid()));
@@ -136,6 +137,7 @@ declare
   target uuid;
   text_value text;
   rating_value integer;
+  existing_submission public.submissions;
 begin
   if uid is null then raise exception 'Authentication required'; end if;
   select * into me from public.profiles where id = uid;
@@ -170,7 +172,20 @@ begin
     insert into public.submissions(applicant_id,course_id,title,description,artifact_url)
       values (uid,(payload->>'course_id')::uuid,public.required_text(payload->>'title','title'),
         public.required_text(payload->>'description','description'),public.safe_url(payload->>'artifact_url'))
+      on conflict (applicant_id,course_id) do nothing
       returning to_jsonb(submissions.*) into result;
+    if result is null then
+      select * into existing_submission from public.submissions
+        where applicant_id = uid and course_id = (payload->>'course_id')::uuid for update;
+      if existing_submission.assessment is not null or
+        existing_submission.title <> trim(payload->>'title') or
+        existing_submission.description <> trim(payload->>'description') or
+        existing_submission.artifact_url <> public.safe_url(payload->>'artifact_url') then
+        raise exception 'This course has already been submitted';
+      end if;
+      -- A grading/network failure can retry the identical pending submission, never award twice.
+      result := to_jsonb(existing_submission);
+    end if;
   elsif action_name = 'create_project' then
     if me.role <> 'ngo' then raise exception 'Requires ngo role'; end if;
     if jsonb_typeof(payload->'min_points') <> 'number' or

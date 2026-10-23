@@ -41,6 +41,10 @@ class DemoTests(unittest.TestCase):
                             artifact_url="https://example.com/delivery")
         self.assertEqual(delivery["points"], 0)
         b.switch_role("ngo")
+        delivered = b.rows("projects", id=project["id"])[0]
+        self.assertEqual(delivered["delivery_description"], "Delivered")
+        self.assertEqual(delivered["delivery_url"], "https://example.com/delivery")
+        self.assertEqual(len(b.rows("submissions")), 1)
         review = b.action("complete_project", project_id=project["id"], payment_reference="Manual only",
                           rating=5, body="Excellent")
         self.assertEqual(review["rating"], 5)
@@ -56,6 +60,9 @@ class DemoTests(unittest.TestCase):
         self.assertNotIn("pitches", public)
         self.assertNotIn("public_token", public["profile"])
         self.assertEqual(public["projects"][0]["status"], "complete")
+        b.switch_role("company")
+        self.assertNotIn("delivery_url", b.rows("projects", id=project["id"])[0])
+        self.assertEqual(b.rows("submissions"), [])
 
     def test_isolation_copying_and_role_permissions(self):
         self.learn()
@@ -95,6 +102,13 @@ class DemoTests(unittest.TestCase):
         row = b.action("submit_learning", course_id="campaign-basics", title="Title",
                        description="Description", points=99999)
         self.assertEqual(row["points"], 0)
+        retry = b.action("submit_learning", course_id="campaign-basics", title="Title",
+                         description="Description", points=99999)
+        self.assertEqual(retry["id"], row["id"])
+        self.assertEqual(len(b.rows("submissions")), 1)
+        with self.assertRaises(ValueError):
+            b.action("submit_learning", course_id="campaign-basics", title="Different",
+                     description="Description")
         b.grade_submission(row["id"], assessment())
         with self.assertRaises(ValueError):
             b.grade_submission(row["id"], assessment())
@@ -141,6 +155,23 @@ class DemoTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_trusted_server_grading_alias(self):
+        class Client:
+            def rpc(self, name, params=None):
+                self.last = (name, params)
+                return self
+            def execute(self):
+                return type("Response", (), {"data": {"id": "submission", "points": 0}})()
+        class TrustedBackend(Backend):
+            def grade_submission(self, submission_id, result):
+                self.graded = (submission_id, result)
+                return {"id": submission_id, "points": 100}
+        backend = TrustedBackend(Client(), grading_client=Client())
+        result = backend.action("submit_learning", course_id="course", assessment=assessment())
+        self.assertEqual(result["points"], 100)
+        self.assertEqual(backend.graded[0], "submission")
+        self.assertNotIn("assessment", backend.client.last[1]["payload"])
+
     def test_strip_untrusted_assessment(self):
         class Response:
             data = {"id": "submission", "points": 0}

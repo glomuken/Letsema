@@ -1,4 +1,6 @@
 import copy
+import io
+import json
 import unittest
 from unittest.mock import patch
 
@@ -38,6 +40,25 @@ class AssessmentTests(unittest.TestCase):
     def test_unconfigured_ai_never_silently_awards_points(self):
         with self.assertRaises(AssessmentError):
             assess_submission({"brief": "Brief", "rubric": self.rubric}, "Evidence", "")
+
+    @patch("assessment.urllib.request.urlopen")
+    def test_assessor_only_calls_fixed_ai_endpoint(self, open_url):
+        response = {"choices": [{"message": {"content": json.dumps(self.result)}}]}
+        open_url.return_value.__enter__.return_value = io.StringIO(json.dumps(response))
+        result = assess_submission({"brief": "Build it", "rubric": self.rubric}, "Evidence",
+                                   "https://untrusted.invalid/file", api_key="test")
+        self.assertEqual(result["points"], 12)
+        self.assertEqual(open_url.call_count, 1)
+        request = open_url.call_args.args[0]
+        self.assertEqual(request.full_url, "https://api.openai.com/v1/chat/completions")
+        self.assertEqual(request.get_header("Authorization"), "Bearer " + "test")
+
+    @patch("assessment.urllib.request.urlopen")
+    def test_malformed_ai_response_awards_nothing(self, open_url):
+        open_url.return_value.__enter__.return_value = io.StringIO('{"choices": []}')
+        with self.assertRaises(AssessmentError):
+            assess_submission({"brief": "Build it", "rubric": self.rubric}, "Evidence", "",
+                              api_key="test")
 
 
 if __name__ == "__main__":

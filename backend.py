@@ -15,9 +15,9 @@ TABLES = {"profiles", "courses", "submissions", "projects", "pitches", "reviews"
 class Backend:
     """Use an authenticated client; never expose ``service_client`` to browsers."""
 
-    def __init__(self, client, service_client=None):
+    def __init__(self, client, service_client=None, *, grading_client=None):
         self.client = client
-        self.service_client = service_client
+        self.service_client = service_client if service_client is not None else grading_client
 
     @property
     def profile(self):
@@ -35,15 +35,32 @@ class Backend:
         query = self.client.table(table).select(columns)
         for key, value in filters.items():
             query = query.eq(key, value)
-        return query.execute().data or []
+        records = query.execute().data or []
+        if table == "projects" and records:
+            # Delivery artifacts are accessible to their author and the commissioning NGO.
+            deliveries = self.client.table("submissions").select(
+                "project_id,description,artifact_url"
+            ).in_("project_id", [r["id"] for r in records]).execute().data or []
+            by_project = {r["project_id"]: r for r in deliveries}
+            for record in records:
+                delivery = by_project.get(record["id"])
+                if delivery:
+                    record.update(delivery_description=delivery["description"],
+                                  delivery_url=delivery["artifact_url"])
+        return records
 
     def action(self, name, **params):
-        # Assessment is untrusted input. Only the service-role grading RPC awards points.
+        # This object runs on the trusted application server. SQL never trusts this payload.
+        # An operator-provided grading client is required to persist a server-generated grade.
+        assessment = None
         if name == "submit_learning":
-            params.pop("assessment", None)
-        return self.client.rpc("letsema_action", {
+            assessment = params.pop("assessment", None)
+        result = self.client.rpc("letsema_action", {
             "action_name": name, "payload": params,
         }).execute().data
+        if name == "submit_learning" and assessment is not None and self.service_client is not None:
+            return self.grade_submission(result["id"], assessment)
+        return result
 
     def grade_submission(self, submission_id, assessment):
         if self.service_client is None:
@@ -177,7 +194,9 @@ class DemoBackend:
             if table == "projects":
                 return row["ngo_id"] == uid or row["status"] != "draft"
             if table == "submissions":
-                return row["applicant_id"] == uid
+                return (row["applicant_id"] == uid or
+                        (row["project_id"] is not None and
+                         self._get("projects", row["project_id"])["ngo_id"] == uid))
             if table == "pitches":
                 return row["applicant_id"] == uid or self._get("projects", row["project_id"])["ngo_id"] == uid
             if table == "subscriptions":
@@ -188,6 +207,13 @@ class DemoBackend:
         if table == "projects":
             records = [{k: v for k, v in r.items() if k not in {"fee_reference", "payment_reference"}}
                        for r in records]
+            for record in records:
+                if record["ngo_id"] == uid or record["assigned_to"] == uid:
+                    delivery = next((s for s in self._data["submissions"]
+                                     if s["project_id"] == record["id"]), None)
+                    if delivery:
+                        record.update(delivery_description=delivery["description"],
+                                      delivery_url=delivery["artifact_url"])
         return copy.deepcopy(records)
 
     def _insert(self, table, **values):
@@ -210,8 +236,16 @@ class DemoBackend:
         if name == "submit_learning":
             self._require("individual")
             course = self._get("courses", p["course_id"])
-            if any(s["applicant_id"] == uid and s["course_id"] == course["id"]
-                   for s in self._data["submissions"]):
+            existing = next((s for s in self._data["submissions"]
+                             if s["applicant_id"] == uid and s["course_id"] == course["id"]), None)
+            if existing:
+                if (existing["assessment"] is None
+                        and existing["title"] == _text(p["title"], "title")
+                        and existing["description"] == _text(p["description"], "description")
+                        and existing["artifact_url"] == _url(p.get("artifact_url"))):
+                    if p.get("assessment"):
+                        return self.grade_submission(existing["id"], p["assessment"])
+                    return copy.deepcopy(existing)
                 raise ValueError("This course has already been submitted")
             assessment = _assessment(course, p["assessment"]) if p.get("assessment") else None
             row = self._insert("submissions", applicant_id=uid, course_id=course["id"], project_id=None,
