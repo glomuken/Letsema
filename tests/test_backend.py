@@ -80,7 +80,7 @@ class DemoTests(unittest.TestCase):
 
     def test_rubric_validation_and_no_duplicate_points(self):
         for invalid in (assessment((41, 40, 20)), assessment((-1, 40, 20)),
-                        assessment((True, 40, 20)), {"scores": []}):
+                        assessment((True, 40, 20)), {"scores": []}, {"scores": [None, None, None]}):
             with self.assertRaises(ValueError):
                 self.backend.action("submit_learning", course_id="campaign-basics", title="Title",
                                     description="Description", assessment=invalid)

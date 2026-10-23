@@ -96,7 +96,7 @@ def _assessment(course, assessment):
         raise ValueError("Assessment must include rubric scores")
     scores = assessment["scores"]
     rubric = course["rubric"]
-    if len(scores) != len(rubric):
+    if len(scores) != len(rubric) or any(not isinstance(score, dict) for score in scores):
         raise ValueError("Every rubric criterion must be graded exactly once")
     normalized, total = [], 0
     for criterion in rubric:
