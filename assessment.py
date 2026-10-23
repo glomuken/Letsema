@@ -20,6 +20,7 @@ def validate_assessment(result, rubric):
     if len(scores) != len(expected):
         raise AssessmentError("The assessor did not score every rubric criterion.")
     seen = set()
+    normalized = []
     for item in scores:
         if not isinstance(item, dict):
             raise AssessmentError("Invalid rubric score.")
@@ -37,12 +38,13 @@ def validate_assessment(result, rubric):
         if not isinstance(item.get("feedback"), str) or not item["feedback"].strip():
             raise AssessmentError("Criterion feedback is missing.")
         seen.add(criterion)
+        normalized.append({"criterion": criterion, "score": int(score), "feedback": item["feedback"]})
     if not isinstance(result.get("feedback"), str) or not result["feedback"].strip():
         raise AssessmentError("Overall assessment feedback is missing.")
     return {
-        "scores": scores,
+        "scores": normalized,
         "feedback": result["feedback"],
-        "points": sum(int(item["score"]) for item in scores),
+        "points": sum(item["score"] for item in normalized),
     }
 
 

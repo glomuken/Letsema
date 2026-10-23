@@ -19,6 +19,13 @@ class AssessmentTests(unittest.TestCase):
     def test_points_derived_from_rubric_not_model_total(self):
         self.assertEqual(validate_assessment(self.result, self.rubric)["points"], 12)
 
+    def test_integer_valued_float_normalized_for_database(self):
+        self.result["scores"][0]["score"] = 12.0
+        result = validate_assessment(self.result, self.rubric)
+        self.assertIs(type(result["scores"][0]["score"]), int)
+        self.assertEqual(result["points"], 12)
+        self.assertIs(type(self.result["scores"][0]["score"]), float)
+
     def test_reject_invalid_scores(self):
         for score in [-1, 21, True, 1.5, float("nan"), float("inf"), "10", None]:
             with self.subTest(score=score), self.assertRaises(AssessmentError):

@@ -15,9 +15,10 @@ TABLES = {"profiles", "courses", "submissions", "projects", "pitches", "reviews"
 class Backend:
     """Use an authenticated client; never expose ``service_client`` to browsers."""
 
-    def __init__(self, client, service_client=None, *, grading_client=None):
+    def __init__(self, client, grading_client=None, *, service_client=None):
         self.client = client
         self.service_client = service_client if service_client is not None else grading_client
+        self.grading_client = self.service_client
 
     @property
     def profile(self):
@@ -201,6 +202,8 @@ class DemoBackend:
                 return row["applicant_id"] == uid or self._get("projects", row["project_id"])["ngo_id"] == uid
             if table == "subscriptions":
                 return row["company_id"] == uid
+            if table == "reviews":
+                return row["applicant_id"] == uid or row["ngo_id"] == uid
             return True
         records = [r for r in self._data[table]
                    if visible(r) and all(r.get(k) == v for k, v in filters.items())]
@@ -355,12 +358,21 @@ class DemoBackend:
         if not profile:
             return None
         uid = profile["id"]
+        projects = []
+        for project in self._data["projects"]:
+            if project["assigned_to"] != uid:
+                continue
+            safe = {k: project[k] for k in ("id", "title", "field", "area", "brief", "status", "assigned_to")}
+            delivery = next((s for s in self._data["submissions"] if s["project_id"] == project["id"]), None)
+            if delivery:
+                safe.update(delivery_description=delivery["description"],
+                            delivery_url=delivery["artifact_url"], artifact_url=delivery["artifact_url"])
+            projects.append(safe)
         return copy.deepcopy({
             "profile": {k: profile[k] for k in ("id", "name", "field", "area", "resume", "points")},
             "submissions": [r for r in self._data["submissions"] if r["applicant_id"] == uid],
             "reviews": [r for r in self._data["reviews"] if r["applicant_id"] == uid],
-            "projects": [{k: r[k] for k in ("id", "title", "field", "area", "brief", "status", "assigned_to")}
-                         for r in self._data["projects"] if r["assigned_to"] == uid],
+            "projects": projects,
         })
 
     def weekly_digest(self):

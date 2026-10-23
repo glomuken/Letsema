@@ -60,9 +60,12 @@ class DemoTests(unittest.TestCase):
         self.assertNotIn("pitches", public)
         self.assertNotIn("public_token", public["profile"])
         self.assertEqual(public["projects"][0]["status"], "complete")
+        self.assertEqual(public["projects"][0]["delivery_url"], "https://example.com/delivery")
+        self.assertEqual(public["projects"][0]["artifact_url"], "https://example.com/delivery")
         b.switch_role("company")
         self.assertNotIn("delivery_url", b.rows("projects", id=project["id"])[0])
         self.assertEqual(b.rows("submissions"), [])
+        self.assertEqual(b.rows("reviews"), [])
 
     def test_isolation_copying_and_role_permissions(self):
         self.learn()
@@ -155,6 +158,66 @@ class DemoTests(unittest.TestCase):
 
 
 class AdapterTests(unittest.TestCase):
+    def test_project_rows_include_authorized_delivery_fields(self):
+        class Query:
+            def __init__(self, client, table):
+                self.client, self.table = client, table
+            def select(self, columns):
+                self.client.selections[self.table] = columns
+                return self
+            def eq(self, key, value):
+                return self
+            def in_(self, key, values):
+                self.client.delivery_filter = (key, values)
+                return self
+            def execute(self):
+                records = ([{"id": "project", "status": "delivered"}] if self.table == "projects" else
+                           [{"project_id": "project", "description": "Delivered evidence",
+                             "artifact_url": "https://example.com/delivery"}])
+                return type("Response", (), {"data": records})()
+        class Client:
+            def __init__(self):
+                self.selections = {}
+            def table(self, name):
+                return Query(self, name)
+        client = Client()
+        backend = Backend(client)
+        project = backend.rows("projects", ngo_id="ngo")[0]
+        self.assertEqual(project["delivery_description"], "Delivered evidence")
+        self.assertEqual(project["delivery_url"], "https://example.com/delivery")
+        self.assertEqual(client.delivery_filter, ("project_id", ["project"]))
+        self.assertNotIn("payment_reference", client.selections["projects"])
+
+    def test_grading_identity_comes_from_authenticated_user(self):
+        class Auth:
+            def get_user(self):
+                user = type("User", (), {"id": "verified-applicant"})()
+                return type("Response", (), {"user": user})()
+        class Client:
+            auth = Auth()
+            def table(self, name):
+                self.table_name = name
+                return self
+            def select(self, columns):
+                return self
+            def eq(self, key, value):
+                self.identity_filter = (key, value)
+                return self
+            def execute(self):
+                return type("Response", (), {"data": [{"id": "verified-applicant"}]})()
+        class Grader:
+            def rpc(self, name, params):
+                self.call = (name, params)
+                return self
+            def execute(self):
+                return type("Response", (), {"data": {"id": "submission", "points": 100}})()
+        client, grader = Client(), Grader()
+        backend = Backend(client, grading_client=grader)
+        backend.grade_submission("submission", assessment())
+        self.assertEqual(client.identity_filter, ("id", "verified-applicant"))
+        self.assertEqual(grader.call[1]["applicant_id"], "verified-applicant")
+        self.assertIs(backend.grading_client, grader)
+
     def test_trusted_server_grading_alias(self):
         class Client:
             def rpc(self, name, params=None):

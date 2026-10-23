@@ -198,7 +198,10 @@ def opportunities(store):
                         message = st.text_area("Why are you right for this project?", max_chars=5000)
                         media = st.text_input("Your video or presentation URL (https://…)")
                         if st.form_submit_button("Send pitch"):
-                            act(store, "pitch", project_id=project["id"], message=message, media_url=media)
+                            if not media.strip():
+                                st.error("Add a video or presentation link to your pitch.")
+                            else:
+                                act(store, "pitch", project_id=project["id"], message=message, media_url=media)
             if project.get("assigned_to") == p["id"] and project["status"] == "assigned":
                 with st.form("deliver_" + str(project["id"])):
                     description = st.text_area("Delivery summary", max_chars=10000)

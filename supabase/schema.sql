@@ -93,7 +93,8 @@ create policy submissions_read on public.submissions for select to authenticated
 create policy pitches_read on public.pitches for select to authenticated
   using (applicant_id = auth.uid() or exists (
     select 1 from public.projects p where p.id = project_id and p.ngo_id = auth.uid()));
-create policy reviews_read on public.reviews for select to authenticated using (true);
+create policy reviews_read on public.reviews for select to authenticated
+  using (applicant_id = auth.uid() or ngo_id = auth.uid());
 create policy subscriptions_read on public.subscriptions for select to authenticated
   using (company_id = auth.uid());
 create policy snapshots_read on public.digest_snapshots for select to authenticated
@@ -327,8 +328,11 @@ begin
     'reviews',coalesce((select jsonb_agg(to_jsonb(r) order by r.created_at,r.id)
       from public.reviews r where r.applicant_id = p.id),'[]'::jsonb),
     'projects',coalesce((select jsonb_agg(jsonb_build_object('id',pr.id,'title',pr.title,'field',pr.field,
-      'area',pr.area,'brief',pr.brief,'status',pr.status,'assigned_to',pr.assigned_to) order by pr.created_at,pr.id)
-      from public.projects pr where pr.assigned_to = p.id),'[]'::jsonb)
+      'area',pr.area,'brief',pr.brief,'status',pr.status,'assigned_to',pr.assigned_to,
+      'delivery_description',delivery.description,'delivery_url',delivery.artifact_url,
+      'artifact_url',delivery.artifact_url) order by pr.created_at,pr.id)
+      from public.projects pr left join public.submissions delivery on delivery.project_id = pr.id
+      where pr.assigned_to = p.id),'[]'::jsonb)
   ) into result;
   return result;
 end $$;

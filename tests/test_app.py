@@ -121,6 +121,22 @@ class AppTests(unittest.TestCase):
         _, params = app.session_state["demo_store"].actions[-1]
         self.assertEqual(params["description"], "Saved evidence")
 
+    def test_pitch_requires_video_or_presentation(self):
+        app = self.app()
+        app.session_state["demo_store"].projects = [{
+            "id": "project", "title": "Campaign", "brief": "Build a campaign",
+            "budget": 1000, "status": "open", "min_points": 0,
+            "field": "Design", "area": "Johannesburg",
+        }]
+        app.selectbox[1].select("NGO opportunities").run()
+        app.text_area[0].set_value("I can help.")
+        app.button[0].click().run()
+        self.assertFalse(app.session_state["demo_store"].actions)
+        self.assertIn("video or presentation", app.error[0].value)
+        app.text_input[0].set_value("https://example.org/pitch")
+        app.button[0].click().run()
+        self.assertEqual(app.session_state["demo_store"].actions[-1][0], "pitch")
+
     def test_public_portfolio_needs_no_authentication(self):
         app = AppTest.from_file(APP)
         app.query_params["profile"] = "demo-token"
