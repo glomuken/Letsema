@@ -210,9 +210,11 @@ begin
       if me.role <> 'individual' or proj.status <> 'open' or me.points < proj.min_points then
         raise exception 'Requires individual with sufficient points and open project';
       end if;
+      text_value := public.safe_url(payload->>'media_url');
+      if text_value = '' then raise exception 'A video or presentation URL is required'; end if;
       insert into public.pitches(project_id,applicant_id,message,media_url)
         values(proj.id,uid,public.required_text(payload->>'message','message'),
-          public.safe_url(payload->>'media_url'))
+          text_value)
         returning to_jsonb(pitches.*) into result;
     elsif action_name = 'assign_project' then
       target := (payload->>'applicant_id')::uuid;

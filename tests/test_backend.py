@@ -26,6 +26,10 @@ class DemoTests(unittest.TestCase):
         submission = self.learn()
         self.assertEqual(submission["points"], 100)
         self.assertEqual(b.profile["points"], 100)
+        for missing in (None, "", "javascript:alert(1)"):
+            with self.assertRaises(ValueError):
+                b.action("pitch", project_id=project["id"], message="Ready", media_url=missing)
+        self.assertEqual(b.rows("pitches"), [])
         b.action("pitch", project_id=project["id"], message="Ready", media_url="https://example.com/pitch")
         with self.assertRaises(ValueError):
             b.action("pitch", project_id=project["id"], message="Duplicate")
@@ -155,6 +159,23 @@ class DemoTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             b.action("submit_learning", course_id="campaign-basics", title="Title",
                      description="Description", artifact_url="javascript:alert(1)")
+
+    def test_reviews_private_to_parties_and_public_only_with_consent(self):
+        b = self.backend
+        b._insert("reviews", project_id=b._data["projects"][0]["id"],
+                  applicant_id="individual", ngo_id="ngo", rating=5, body="Private review")
+        token = b.profile["public_token"]
+        self.assertEqual(len(b.rows("reviews")), 1)
+        self.assertEqual(len(b.public_profile(token)["reviews"]), 1)
+        b.action("update_profile", public_enabled=False)
+        self.assertEqual(len(b.rows("reviews")), 1)
+        self.assertIsNone(b.public_profile(token))
+        b.switch_role("ngo")
+        self.assertEqual(len(b.rows("reviews")), 1)
+        b.switch_role("company")
+        self.assertEqual(b.rows("reviews"), [])
+        self.assertEqual(b.rows("reviews", applicant_id="individual"), [])
+        self.assertIsNone(b.public_profile(token))
 
 
 class AdapterTests(unittest.TestCase):

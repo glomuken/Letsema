@@ -287,8 +287,11 @@ class DemoBackend:
                 if any(x["project_id"] == project["id"] and x["applicant_id"] == uid
                        for x in self._data["pitches"]):
                     raise ValueError("Already pitched")
+                media_url = _url(p.get("media_url"))
+                if not media_url:
+                    raise ValueError("A video or presentation URL is required")
                 row = self._insert("pitches", project_id=project["id"], applicant_id=uid,
-                                   message=_text(p["message"], "message"), media_url=_url(p.get("media_url")))
+                                   message=_text(p["message"], "message"), media_url=media_url)
             elif name == "assign_project":
                 applicant = self._get("profiles", p["applicant_id"])
                 if project["status"] != "open" or applicant["role"] != "individual" or not any(
